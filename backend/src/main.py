@@ -15,6 +15,10 @@ from src.routes import auth,source,profiles,runs,notes,audit
 @asynccontextmanager
 async def lifespan(app):
  Base.metadata.create_all(engine)
+ try:
+  from src.config.schema import ensure_moment_constraints
+  if ensure_moment_constraints():logging.info('upgraded observation_traces with nullable constraints column')
+ except Exception:logging.exception('moment-constraint schema upgrade failed; reads continue with unconstrained behavior')
  if SEED_DEMO:
   try:
    from scripts.seed_demo import seed

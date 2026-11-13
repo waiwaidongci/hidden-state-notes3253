@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import numpy as np
 from sqlalchemy import select,func
 from src.config.database import Base,engine,SessionLocal
@@ -7,6 +8,10 @@ from src.utils.security import hash_password
 from src.utils.serialize import row
 from src.services.parameters import normalize_parameters
 from src.services.analysis import analyze
+
+# 固定二态三步校验：8 paths, likelihood 907/25000, logL -3.316488653735, joint MAP 001.
+# 三态27路径校验：likelihood 1/40, joint MAP 012, marginal argmax 002 violates A[0,2]=0.
+# 受限发射证书：三态固定模型在码C上真实0，用于把真实0与数值下溢分开。
 
 def seed():
  Base.metadata.create_all(engine)
@@ -22,12 +27,12 @@ def seed():
      state=int(rng.choice(3,p=params['pi']));tokens=[]
      for t in range(40):
       tokens.append(symbols[int(rng.choice(4,p=params['emission'][state]))]);state=int(rng.choice(3,p=params['transition'][state]))
-     db.add(ObservationTrace(study_id=study.id,reference=f'YX{index+1}-T{i+1:03d}',tokens=tokens))
+     db.add(ObservationTrace(study_id=study.id,reference=f'YX{index+1}-T{i+1:03d}',tokens=tokens,constraints=[]))
     db.commit()
    if not db.scalar(select(ModelProfile).where(ModelProfile.name==f'YX{index+1}-固定参数-v1')):db.add(ModelProfile(study_id=study.id,name=f'YX{index+1}-固定参数-v1',version='v1',states=states,symbols=symbols,parameters=params,normalization_max_delta=params['max_normalization_delta'],created_by='analyst@yanxi.demo'));db.commit()
   run=db.scalar(select(InferenceRun).where(InferenceRun.name=='A研究前20轨迹固定推断'))
   if not run:
-   study=db.scalar(select(SequenceStudy).where(SequenceStudy.name==names[0]));profile=db.scalar(select(ModelProfile).where(ModelProfile.study_id==study.id));traces=[row(t) for t in db.scalars(select(ObservationTrace).where(ObservationTrace.study_id==study.id).order_by(ObservationTrace.reference).limit(20))];snapshot=row(profile);result=analyze(snapshot,traces);run=InferenceRun(study_id=study.id,profile_id=profile.id,name='A研究前20轨迹固定推断',profile_snapshot=snapshot,trace_snapshot=traces,status='completed',result=result,total_log_likelihood=result['total_log_likelihood'],created_by='analyst@yanxi.demo');db.add(run);db.commit()
-  if not db.scalar(select(InterpretationNote).where(InterpretationNote.name=='A研究固定模型工况核对初稿')):db.add(InterpretationNote(run_id=run.id,name='A研究固定模型工况核对初稿',interpretation='隐态只由固定模型定义，边际最高态与联合MAP须分别解释。',next_step='回看观测码和设备记录，核对模型假设与观测含义；不把隐态当真实故障或在线告警。',result_snapshot=run.result,created_by='analyst@yanxi.demo'));db.commit()
+   study=db.scalar(select(SequenceStudy).where(SequenceStudy.name==names[0]));profile=db.scalar(select(ModelProfile).where(ModelProfile.study_id==study.id));traces=[dict(row(t),constraints=list(t.constraints or [])) for t in db.scalars(select(ObservationTrace).where(ObservationTrace.study_id==study.id).order_by(ObservationTrace.reference).limit(20))];snapshot=row(profile);result=analyze(snapshot,traces);run=InferenceRun(study_id=study.id,profile_id=profile.id,name='A研究前20轨迹固定推断',profile_snapshot=snapshot,trace_snapshot=traces,status='completed',result=result,total_log_likelihood=result['total_log_likelihood'],created_by='analyst@yanxi.demo');db.add(run);db.commit()
+  if not db.scalar(select(InterpretationNote).where(InterpretationNote.name=='A研究固定模型工况核对初稿')):db.add(InterpretationNote(run_id=run.id,name='A研究固定模型工况核对初稿',interpretation='隐态只由固定模型定义，边际最高态与联合MAP须分别解释；逐时刻待核对的隐态假设只条件化该轨迹的后验与联合路径。',next_step='回看观测码和设备记录，核对模型假设与观测含义；不把隐态当真实故障或在线告警。',result_snapshot=run.result,created_by='analyst@yanxi.demo'));db.commit()
   counts={m.__tablename__:db.scalar(select(func.count()).select_from(m)) for m in [User,SequenceStudy,ObservationTrace,ModelProfile,InferenceRun,InterpretationNote]};print(json.dumps(counts));return counts
 if __name__=='__main__':seed()

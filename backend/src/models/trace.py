@@ -8,3 +8,6 @@ class ObservationTrace(Base):
  study_id:Mapped[int]=mapped_column(ForeignKey('sequence_studies.id'))
  reference:Mapped[str]=mapped_column(String(100))
  tokens:Mapped[list]=mapped_column(JSON)
+ # Persisted moment hypotheses: [{'step': 1-based, 'allowed_states': [0-based state indexes]}].
+ # NULL means legacy rows imported before conditional inference; readers normalize it to [].
+ constraints:Mapped[list|None]=mapped_column(JSON,nullable=True,default=list)
